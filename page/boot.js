@@ -31,6 +31,9 @@ function fail(message, detail) {
   }
 
   const target = magpie.service || `http://127.0.0.1:${port}/`;
+  const url = new URL(target, location.href);
+  url.searchParams.set('theme', theme && theme.dark ? 'dark' : 'light');
+  if (theme && theme.lang) url.searchParams.set('lang', theme.lang);
 
   const stuck = setTimeout(() => {
     fail(
@@ -47,5 +50,5 @@ function fail(message, detail) {
   }, 6000);
 
   addEventListener("pagehide", () => clearTimeout(stuck));
-  location.replace(target);
+  location.replace(url.href);
 })();

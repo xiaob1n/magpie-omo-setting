@@ -2,6 +2,12 @@ const REASONING_PRESETS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', '
 
 const OMO_TOKEN = document.querySelector('meta[name="omo-token"]')?.content || '';
 
+const bootParams = new URLSearchParams(location.search);
+const bootTheme = bootParams.get('theme');
+if (bootTheme === 'dark' || bootTheme === 'light') document.documentElement.dataset.theme = bootTheme;
+const bootLang = bootParams.get('lang');
+if (bootLang) document.documentElement.lang = bootLang;
+
 function apiFetch(path, init = {}) {
   return fetch(path.replace(/^\//, ''), { ...init, headers: { ...(init.headers || {}), 'X-Omo-Token': OMO_TOKEN } }).then(async res => {
     if (!res.ok) { const data = await res.json(); throw new Error(data.error || `HTTP ${res.status}`); }
