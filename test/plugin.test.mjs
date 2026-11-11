@@ -265,6 +265,24 @@ describe('magpie-omo-setting core logic', () => {
     expect(Bun.JSONC.parse(raw).categories.quick.models).toEqual([{ model: 'a', temperature: 0.2 }, 'b']);
   });
 
+  test('a comma inside a comment is not a separator, and leading trivia survives', () => {
+    const cases = [
+      ['"a", "b" /* keep, comma */', '/* keep, comma */'],
+      ['"a" /* keep, comma */, "b"', '/* keep, comma */'],
+      ['/* KEEP_ARRAY_NOTE */ "a", "b"', '/* KEEP_ARRAY_NOTE */'],
+    ];
+    for (const [body, mustKeep] of cases) {
+      fs.writeFileSync(tmpConfigPath, `{"categories":{"quick":{"models":[${body}]}}}`);
+      const doc = readOmoCategories();
+      saveOmoCategories(doc.revision, [{ scope: 'categories', name: 'quick', models: [
+        { model: 'b', index: 1 }, { model: 'a', index: 0 },
+      ] }]);
+      const raw = fs.readFileSync(tmpConfigPath, 'utf8');
+      expect(raw).toContain(mustKeep);
+      expect(Bun.JSONC.parse(raw).categories.quick.models).toEqual(['b', 'a']);
+    }
+  });
+
   test('BOM input is editable and removing the final model is rejected', () => {
     fs.writeFileSync(tmpConfigPath,'\uFEFF{"categories":{"quick":{"models":["old"]}}}');
     const doc=readOmoCategories();
