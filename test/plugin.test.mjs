@@ -215,6 +215,31 @@ describe('magpie-omo-setting core logic', () => {
     expect(()=>saveOmoCategories(doc.revision,[{scope:'categories',name:'quick',reasoning:{value:'high'}}])).toThrow();
   });
 
+  test('editing a model keeps comments inside the models array', () => {
+    fs.writeFileSync(tmpConfigPath, `{
+  "categories": {
+    "quick": {
+      "models": [
+        "a", // keep-a
+        // keep-b above
+        "b",
+        {"model": "c", "temperature": 0.3} // keep-c
+      ]
+    }
+  }
+}`, 'utf8');
+    const doc = readOmoCategories();
+    saveOmoCategories(doc.revision, [{ scope: 'categories', name: 'quick', models: [
+      { model: 'a', index: 0 }, { model: 'b', index: 1 }, { model: 'c2', index: 2 },
+    ] }]);
+    const raw = fs.readFileSync(tmpConfigPath, 'utf8');
+    expect(raw).toContain('// keep-a');
+    expect(raw).toContain('// keep-b above');
+    expect(raw).toContain('// keep-c');
+    expect(raw).toContain('"temperature": 0.3');
+    expect(Bun.JSONC.parse(raw).categories.quick.models[2].model).toBe('c2');
+  });
+
   test('BOM input is editable and removing the final model is rejected', () => {
     fs.writeFileSync(tmpConfigPath,'\uFEFF{"categories":{"quick":{"models":["old"]}}}');
     const doc=readOmoCategories();
