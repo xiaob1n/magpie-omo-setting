@@ -1,0 +1,47 @@
+{
+  "name": "magpie-omo-setting",
+  "version": "0.1.0",
+  "description": "Magpie page plugin for OmO categories and subagents configuration",
+  "type": "module",
+  "main": "./index.mjs",
+  "files": [
+    "index.mjs",
+    "lib",
+    "page",
+    "ui",
+    "README.md"
+  ],
+  "keywords": [
+    "magpie",
+    "magpie-plugin",
+    "omo",
+    "page"
+  ],
+  "license": "MIT",
+  "dependencies": { "jsonc-parser": "3.3.1" },
+  "magpie": {
+    "name": "OmO Settings",
+    "icon": "page/icon.svg",
+    "summary": {
+      "en": "Configure OmO categories and subagents inline in a dedicated page.",
+      "zh": "在独立页面配置 OmO 类别与子代理模型及推理档位。"
+    },
+    "page": {
+      "title": "OmO Settings",
+      "titles": {
+        "zh": "OmO 设置",
+        "zh-TW": "OmO 設定",
+        "ja": "OmO 設定"
+      },
+      "file": "page/index.html",
+      "icon": "page/icon.svg",
+      "service": {
+        "port": 3488,
+        "option": "port"
+      }
+    },
+    "options": {
+      "port": 3488
+    }
+  }
+}

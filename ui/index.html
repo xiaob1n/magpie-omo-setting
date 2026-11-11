@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OmO 设置</title>
+  <meta name="omo-token" content="__OMO_TOKEN__">
+  <link rel="icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="omo-container">
+    <header class="omo-top-bar">
+      <div class="omo-title-group">
+        <img class="omo-logo" src="icon.svg" alt="OmO">
+        <h1 class="omo-title">OmO 设置</h1>
+      </div>
+      <div class="omo-webdav-bar">
+        <div class="omo-sync-badge" id="syncBadge">
+          <span class="omo-sync-dot" id="syncDot"></span>
+          <span id="syncText">WebDAV: 正在检测...</span>
+        </div>
+        <button type="button" id="btnUpload" title="上传当前配置至 WebDAV 云端">备份到云端</button>
+        <button type="button" id="btnDownload" title="从 WebDAV 云端拉取配置并覆盖本地">从云端恢复</button>
+        <button type="button" class="icon" id="btnWebdavConfig" title="WebDAV 同步设置">⚙</button>
+      </div>
+    </header>
+
+    <div class="omo-cat-meta">
+      <div class="omo-cat-path" id="configPath">~/.omo/omo.jsonc</div>
+      <div class="omo-cat-scope">编辑全局配置。保存后请重启 OmO CLI 生效；项目目录中的 .omo 配置具有更高优先级。</div>
+    </div>
+
+    <div class="omo-cat-actions">
+      <button type="button" id="btnReload">重新加载</button>
+      <span class="grow"></span>
+      <button type="button" id="btnCancel" disabled>取消</button>
+      <button type="button" class="accent" id="btnSave" disabled>保存配置</button>
+    </div>
+
+    <div id="noticeBanner" class="omo-cat-banner" hidden>
+      <span id="noticeMsg"></span>
+      <button type="button" id="btnDismissNotice">×</button>
+    </div>
+
+    <main class="omo-cat-list" id="catList">
+      <div class="omo-cat-empty">正在加载 OmO 配置...</div>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="webdavModal" hidden>
+    <div class="modal-card">
+      <h2 class="modal-title">WebDAV 同步设置</h2>
+      <div class="modal-body">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <input type="checkbox" id="chkUseMagpieSync">
+          <label for="chkUseMagpieSync" style="cursor: pointer; font-size: 13px; font-weight: 500;">复用 magpie 坚果云 / WebDAV 凭据 (推荐)</label>
+        </div>
+        <div id="customWebdavFields" style="display: flex; flex-direction: column; gap: 10px;">
+          <div class="modal-row">
+            <label for="txtWebdavUrl">WebDAV 服务器地址</label>
+            <input type="text" id="txtWebdavUrl" placeholder="https://dav.jianguoyun.com/dav/">
+          </div>
+          <div class="modal-row">
+            <label for="txtWebdavUser">用户名 / 邮箱</label>
+            <input type="text" id="txtWebdavUser" placeholder="name@example.com">
+          </div>
+          <div class="modal-row">
+            <label for="txtWebdavPassword">应用密码 / Token</label>
+            <input type="password" id="txtWebdavPassword" placeholder="••••••••">
+          </div>
+        </div>
+        <div class="modal-row">
+          <label for="txtRemotePath">云端保存路径</label>
+          <input type="text" id="txtRemotePath" value="magpie/omo/omo.jsonc" placeholder="magpie/omo/omo.jsonc">
+        </div>
+        <div id="webdavTestResult" style="font-size: 12px; color: var(--muted); min-height: 18px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="btnTestWebdav">测试连接</button>
+        <button type="button" id="btnCloseWebdav">取消</button>
+        <button type="button" class="primary" id="btnSaveWebdav">保存设置</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modelModal" hidden>
+    <div class="modal-card">
+      <h2 class="modal-title" id="modelModalTitle">选择模型</h2>
+      <div class="modal-body">
+        <div class="modal-row">
+          <input type="text" id="txtModelSearch" placeholder="搜索模型或输入自定义模型名称，按回车添加...">
+        </div>
+        <div class="model-list-box" id="modelListBox">
+          <div style="padding: 12px; color: var(--muted); text-align: center;">正在加载模型列表...</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="btnCustomModelSubmit">使用自定义输入</button>
+        <button type="button" id="btnCloseModelModal">取消</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="confirmModal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="confirmMessage">
+      <p id="confirmMessage"></p>
+      <div class="modal-footer">
+        <button type="button" id="btnConfirmNo">取消</button>
+        <button type="button" id="btnConfirmYes" class="primary">确定继续</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
