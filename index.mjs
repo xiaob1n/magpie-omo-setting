@@ -9,6 +9,9 @@ import {
   saveWebdavConfig,
   uploadToWebdav,
   downloadFromWebdav,
+  autoSyncTick,
+  getAutoSyncState,
+  AUTO_SYNC_MS,
 } from './lib/webdav.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -30,6 +33,14 @@ const MIME = {
 };
 
 let server = null;
+let autoSyncTimer = null;
+
+// 每三分钟把本机改动传一次；失败只记录，不打断服务
+function startAutoSync() {
+  if (autoSyncTimer) return;
+  autoSyncTimer = setInterval(() => { autoSyncTick().catch(() => {}); }, AUTO_SYNC_MS);
+  autoSyncTimer.unref?.();
+}
 
 function hostAllowed(host) {
   if (!host) return true;
@@ -99,6 +110,10 @@ async function api(req, url) {
 
   if (url.pathname === '/api/webdav/status' && req.method === 'GET') {
     return Response.json(await getWebdavStatus());
+  }
+
+  if (url.pathname === '/api/webdav/autosync' && req.method === 'GET') {
+    return Response.json(getAutoSyncState());
   }
 
   if (url.pathname === '/api/webdav/test' && req.method === 'POST') {
@@ -175,6 +190,7 @@ export function startServer(options = {}) {
     },
   });
 
+  startAutoSync();
   return server;
 }
 

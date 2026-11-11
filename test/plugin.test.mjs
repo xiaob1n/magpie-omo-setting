@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { stripJSONC, readOmoCategories, saveOmoCategories } from '../lib/omo-config.mjs';
-import { getWebdavStatus, testWebdavConnection, uploadToWebdav, downloadFromWebdav, saveWebdavConfig } from '../lib/webdav.mjs';
+import { getWebdavStatus, testWebdavConnection, uploadToWebdav, downloadFromWebdav, saveWebdavConfig, autoSyncTick, AUTO_SYNC_MS } from '../lib/webdav.mjs';
 
 describe('magpie-omo-setting core logic', () => {
   let tmpDir;
@@ -281,6 +281,69 @@ describe('magpie-omo-setting core logic', () => {
       expect(raw).toContain(mustKeep);
       expect(Bun.JSONC.parse(raw).categories.quick.models).toEqual(['b', 'a']);
     }
+  });
+
+  test('auto sync uploads a changed local file once, then stays quiet', async () => {
+    let stored = null;
+    let puts = 0;
+    dav = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
+      if (req.headers.get('authorization') !== 'Basic ' + Buffer.from('fixture:secret').toString('base64')) return new Response('', {status:401});
+      if (req.method === 'PUT') { stored = await req.text(); puts += 1; return new Response('', {status:201}); }
+      if (req.method === 'GET') return stored === null ? new Response('', {status:404}) : new Response(stored);
+      return new Response('', {status:207});
+    }});
+    const creds = { useMagpieSync:false, url:dav.url.href, user:'fixture', password:'secret', remotePath:'magpie/omo/autosync.jsonc' };
+    expect(AUTO_SYNC_MS).toBe(180000);
+
+    fs.writeFileSync(tmpConfigPath, '{"categories":{"quick":{"models":["a"]}}}', 'utf8');
+    expect((await autoSyncTick(creds)).lastResult).toBe('uploaded');
+    expect(puts).toBe(1);
+    expect(stored).toContain('"quick"');
+
+    expect((await autoSyncTick(creds)).lastResult).toBe('unchanged');
+    expect(puts).toBe(1);
+
+    fs.writeFileSync(tmpConfigPath, '{"categories":{"quick":{"models":["b"]}}}', 'utf8');
+    expect((await autoSyncTick(creds)).lastResult).toBe('uploaded');
+    expect(puts).toBe(2);
+  });
+
+  test('auto sync never overwrites a remote that another device changed', async () => {
+    let stored = null;
+    let puts = 0;
+    dav = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
+      if (req.headers.get('authorization') !== 'Basic ' + Buffer.from('fixture:secret').toString('base64')) return new Response('', {status:401});
+      if (req.method === 'PUT') { stored = await req.text(); puts += 1; return new Response('', {status:201}); }
+      if (req.method === 'GET') return stored === null ? new Response('', {status:404}) : new Response(stored);
+      return new Response('', {status:207});
+    }});
+    const creds = { useMagpieSync:false, url:dav.url.href, user:'fixture', password:'secret', remotePath:'magpie/omo/conflict.jsonc' };
+
+    fs.writeFileSync(tmpConfigPath, '{"categories":{"quick":{"models":["mine"]}}}', 'utf8');
+    await autoSyncTick(creds);
+    expect(puts).toBe(1);
+
+    stored = '{"categories":{"quick":{"models":["theirs"]}}}'; // 另一台设备改了远端
+    fs.writeFileSync(tmpConfigPath, '{"categories":{"quick":{"models":["newer"]}}}', 'utf8');
+    const conflicted = await autoSyncTick(creds);
+    expect(conflicted.lastResult).toBe('conflict');
+    expect(puts).toBe(1);
+    expect(stored).toContain('theirs');
+  });
+
+  test('a download becomes the point both sides agree on', async () => {
+    let stored = '{"categories":{"quick":{"models":["remote"]}}}';
+    let puts = 0;
+    dav = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
+      if (req.headers.get('authorization') !== 'Basic ' + Buffer.from('fixture:secret').toString('base64')) return new Response('', {status:401});
+      if (req.method === 'PUT') { stored = await req.text(); puts += 1; return new Response('', {status:201}); }
+      if (req.method === 'GET') return new Response(stored);
+      return new Response('', {status:207});
+    }});
+    const creds = { useMagpieSync:false, url:dav.url.href, user:'fixture', password:'secret', remotePath:'magpie/omo/agree.jsonc' };
+    await downloadFromWebdav(creds);
+    expect((await autoSyncTick(creds)).lastResult).toBe('unchanged');
+    expect(puts).toBe(0);
   });
 
   test('BOM input is editable and removing the final model is rejected', () => {

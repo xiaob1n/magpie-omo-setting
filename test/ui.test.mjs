@@ -7,7 +7,7 @@ function ui() {
   const element = () => ({children:[],hidden:false,style:{},value:'',textContent:'',append(...children){this.children.push(...children)},focus(){},set innerHTML(value){this.children=[]},get innerHTML(){return ''}});
   const document = {createElement:element,querySelector(){return {content:'fixture-token'}},getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id)}};
   const requests = [];
-  const context = vm.createContext({document,Set,console,URLSearchParams,location:{search:''},fetch:async (url,init) => {
+  const context = vm.createContext({document,Set,console,URLSearchParams,location:{search:''},setInterval:()=>0,clearInterval:()=>{},fetch:async (url,init) => {
     requests.push({url,init});
     return {ok:true,json:async()=>url.includes('categories')?{path:'fixture',status:'ready',revision:'fixture',categories:[],agents:[]}:url.includes('models')?{data:[]}:{configured:false}};
   }});

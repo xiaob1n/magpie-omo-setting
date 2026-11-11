@@ -130,7 +130,17 @@ async function loadWebdavStatus() {
     dot.className = 'omo-sync-dot online';
     const src = data.source === 'magpie' ? '坚果云/magpie' : '自定义';
     const lastTime = data.lastSync ? new Date(data.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '未同步';
-    text.textContent = `WebDAV (${src}) · ${lastTime}`;
+    const auto = data.autoSync || {};
+    const autoLabel = {
+      uploaded: '刚自动上传',
+      unchanged: '本机无改动',
+      conflict: '远端已改，暂停自动上传',
+      failed: '自动同步失败',
+      skipped: '自动同步待配置',
+      idle: '自动同步待启动',
+    }[auto.lastResult] || '自动同步';
+    text.textContent = `WebDAV (${src}) · 每 3 分钟 · ${lastTime} · ${autoLabel}`;
+    text.title = auto.lastError ? `${autoLabel}：${auto.lastError}` : '每 3 分钟把本机改动上传一次；远端被其他设备改过时不会覆盖任何一侧';
   } catch {
     dot.className = 'omo-sync-dot offline';
     text.textContent = 'WebDAV: 连接异常';
@@ -457,7 +467,6 @@ async function saveChanges() {
 }
 
 async function uploadWebdav() {
-  if (!await confirmInPage('确定将当前 OmO 配置备份上传到 WebDAV 云端吗？')) return;
   hideNotice();
   try {
     const res = await apiFetch('/api/webdav/upload', { method: 'POST' });
@@ -621,4 +630,5 @@ function initEvents() {
   await loadCategories();
   await loadModels();
   await loadWebdavStatus();
+  setInterval(() => { loadWebdavStatus(); }, 60000);
 })();
