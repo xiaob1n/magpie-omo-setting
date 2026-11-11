@@ -240,6 +240,31 @@ describe('magpie-omo-setting core logic', () => {
     expect(Bun.JSONC.parse(raw).categories.quick.models[2].model).toBe('c2');
   });
 
+  test('reordering retained models keeps their own comments', () => {
+    fs.writeFileSync(tmpConfigPath, `{
+  "categories": {
+    "quick": {
+      "models": [
+        "b", // keep-b
+        { // KEEP_RETAINED_MODEL_NOTE
+          "model": "a",
+          "temperature": 0.2
+        }
+      ]
+    }
+  }
+}`, 'utf8');
+    const doc = readOmoCategories();
+    saveOmoCategories(doc.revision, [{ scope: 'categories', name: 'quick', models: [
+      { model: 'a', index: 1 }, { model: 'b', index: 0 },
+    ] }]);
+    const raw = fs.readFileSync(tmpConfigPath, 'utf8');
+    expect(raw).toContain('KEEP_RETAINED_MODEL_NOTE');
+    expect(raw).toContain('keep-b');
+    expect(raw).toContain('"temperature": 0.2');
+    expect(Bun.JSONC.parse(raw).categories.quick.models).toEqual([{ model: 'a', temperature: 0.2 }, 'b']);
+  });
+
   test('BOM input is editable and removing the final model is rejected', () => {
     fs.writeFileSync(tmpConfigPath,'\uFEFF{"categories":{"quick":{"models":["old"]}}}');
     const doc=readOmoCategories();
