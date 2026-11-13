@@ -15,9 +15,12 @@ function apiFetch(path, init = {}) {
   });
 }
 
+const MODEL_REFRESH_MS = 30000;
+
 let baseDoc = { path: '~/.omo/omo.jsonc', revision: '', status: 'ready', categories: [], agents: [] };
 let draft = [];
 let availableModels = [];
+let modelsRefresh = null;
 let expandedKeys = new Set();
 let isSaving = false;
 let modelPickerTarget = null;
@@ -103,14 +106,32 @@ async function loadCategories() {
   }
 }
 
+function modelsSignature(list) {
+  return list.map((m) => `${m.id}\0${m.name || ''}`).join('\n');
+}
+
 async function loadModels() {
-  try {
-    const res = await apiFetch('/api/models');
-    const json = await res.json();
-    availableModels = json.data || [];
-  } catch {
-    availableModels = [];
-  }
+  if (modelsRefresh) return modelsRefresh;
+  modelsRefresh = (async () => {
+    const prevSig = modelsSignature(availableModels);
+    let shouldRender = false;
+    try {
+      const res = await apiFetch('/api/models', { cache: 'no-store' });
+      const json = await res.json();
+      const next = Array.isArray(json.data) ? json.data : [];
+      shouldRender = modelsSignature(next) !== prevSig || !next.length;
+      availableModels = next;
+    } catch {
+      shouldRender = !availableModels.length;
+    } finally {
+      modelsRefresh = null;
+      const modal = document.getElementById('modelModal');
+      if (shouldRender && modal && !modal.hidden) {
+        renderModelOptions(document.getElementById('txtModelSearch').value);
+      }
+    }
+  })();
+  return modelsRefresh;
 }
 
 async function loadWebdavStatus() {
@@ -365,9 +386,16 @@ function openModelModal(scope, name, index, isAdd) {
   const searchInput = document.getElementById('txtModelSearch');
   title.textContent = `${name}: ${isAdd ? '添加模型' : '替换模型'}`;
   searchInput.value = '';
-  renderModelOptions('');
   modal.hidden = false;
+  if (!availableModels.length) {
+    const box = document.getElementById('modelListBox');
+    box.innerHTML = '<div style="padding: 12px; color: var(--muted); text-align: center;">正在加载模型列表...</div>';
+  } else {
+    renderModelOptions('');
+  }
   searchInput.focus();
+  // 打开选择弹窗时同步刷新一次网关模型，避免切换供应商后仍显示旧缓存
+  loadModels();
 }
 
 function closeModelModal() {
@@ -533,7 +561,7 @@ function confirmInPage(message) {
 function initEvents() {
   document.getElementById('btnReload').onclick = async () => {
     if (isDirty() && !await confirmInPage('放弃当前未保存的修改并重新加载吗？')) return;
-    loadCategories();
+    await Promise.all([loadCategories(), loadModels()]);
   };
 
   document.getElementById('btnCancel').onclick = () => {
@@ -623,12 +651,19 @@ function initEvents() {
     const val = searchInput.value.trim();
     if (val) selectModel(val);
   };
+
+  // 从供应商页面切回插件页或窗口恢复可见时自动刷新模型列表
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) loadModels();
+  });
+  addEventListener('focus', () => {
+    loadModels();
+  });
 }
 
 (async () => {
   initEvents();
-  await loadCategories();
-  await loadModels();
-  await loadWebdavStatus();
+  await Promise.all([loadCategories(), loadModels(), loadWebdavStatus()]);
   setInterval(() => { loadWebdavStatus(); }, 60000);
+  setInterval(() => { if (!document.hidden) loadModels(); }, MODEL_REFRESH_MS);
 })();

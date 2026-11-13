@@ -69,3 +69,59 @@ test('gateway model identifiers use OmO provider namespace exactly once', async 
   try { expect((await fetchGatewayModels()).map(m=>m.id)).toEqual(['magpie/cpa/foo','magpie/cpa/bar']); }
   finally {gateway.stop(true);if(previous===undefined)delete process.env.MAGPIE_ADDR;else process.env.MAGPIE_ADDR=previous;}
 });
+
+test('/api/models disables HTTP caching and reflects updated gateway providers immediately', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'omo-models-http-'));
+  const previous = {
+    HOME: process.env.HOME,
+    OMO_CONFIG_PATH: process.env.OMO_CONFIG_PATH,
+    MAGPIE_ADDR: process.env.MAGPIE_ADDR,
+    MAGPIE_OMO_PORT: process.env.MAGPIE_OMO_PORT,
+  };
+  process.env.HOME = dir;
+  process.env.OMO_CONFIG_PATH = path.join(dir, 'omo.jsonc');
+  fs.writeFileSync(process.env.OMO_CONFIG_PATH, '{"categories":{"quick":{"models":["old"]}}}');
+
+  let gatewayModels = [{ id: 'provider-a/m1', owned_by: 'provider-a' }];
+  const gateway = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch() { return Response.json({ data: gatewayModels }); },
+  });
+  process.env.MAGPIE_ADDR = `${gateway.hostname}:${gateway.port}`;
+  process.env.MAGPIE_OMO_PORT = '0';
+
+  let server;
+  try {
+    const plugin = await import('../index.mjs');
+    server = plugin.startServer({ port: 0 });
+    const base = server.url.href;
+    const page = await fetch(base);
+    const token = /name="omo-token" content="([^"]+)"/.exec(await page.text())[1];
+    const headers = { Origin: 'null', 'X-Omo-Token': token };
+
+    const first = await fetch(new URL('api/models', base), { headers });
+    expect(first.status).toBe(200);
+    expect(first.headers.get('cache-control')).toBe('no-store');
+    expect((await first.json()).data.map((m) => m.id)).toEqual(['magpie/provider-a/m1']);
+
+    gatewayModels = [{ id: 'provider-b/m2', owned_by: 'provider-b' }];
+    const second = await fetch(new URL('api/models', base), { headers });
+    expect(second.status).toBe(200);
+    expect(second.headers.get('cache-control')).toBe('no-store');
+    expect((await second.json()).data.map((m) => m.id)).toEqual(['magpie/provider-b/m2']);
+
+    gatewayModels = [];
+    const empty = await fetch(new URL('api/models', base), { headers });
+    expect(empty.status).toBe(200);
+    expect((await empty.json()).data).toEqual([]);
+  } finally {
+    server?.stop(true);
+    gateway.stop(true);
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

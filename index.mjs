@@ -82,6 +82,8 @@ async function route(req) {
     try { res = await api(req, url); }
     catch (err) { res = Response.json({ error: err.message }, { status: err.status || (err instanceof SyntaxError ? 400 : 500) }); }
     for (const [k, v] of Object.entries(cors)) res.headers.set(k, v);
+    // 禁用接口响应缓存，确保模型列表与配置始终取自网关最新状态
+    res.headers.set('Cache-Control', 'no-store');
     return res;
   }
 
@@ -169,7 +171,7 @@ export function startServer(options = {}) {
   const port = options.port === undefined ? DEFAULT_PORT : Number(options.port);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('无效端口');
 
-  if (server && server.port === port) return server;
+  if (server && server.port > 0 && server.port === port) return server;
   if (server) {
     server.stop(true);
     server = null;
