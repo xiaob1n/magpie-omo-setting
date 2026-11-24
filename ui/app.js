@@ -17,10 +17,12 @@ function apiFetch(path, init = {}) {
 
 const MODEL_REFRESH_MS = 30000;
 
-let baseDoc = { path: '~/.omo/omo.jsonc', revision: '', status: 'ready', categories: [], agents: [] };
+let baseDoc = { path: '~/.omo/omo.jsonc', revision: '', status: 'loading', categories: [], agents: [] };
+let categoryLoadNotice = '';
 let draft = [];
 let availableModels = [];
 let modelsRefresh = null;
+let modelsError = '';
 let expandedKeys = new Set();
 let isSaving = false;
 let modelPickerTarget = null;
@@ -94,6 +96,8 @@ async function loadCategories() {
   try {
     const res = await apiFetch('/api/omo/categories');
     const data = await res.json();
+    if (categoryLoadNotice && document.getElementById('noticeMsg').textContent === categoryLoadNotice) hideNotice();
+    categoryLoadNotice = '';
     baseDoc = data;
     document.getElementById('configPath').textContent = data.path || '~/.omo/omo.jsonc';
     draft = cloneDraft(data.categories, data.agents);
@@ -102,7 +106,9 @@ async function loadCategories() {
     renderList();
     updateButtons();
   } catch (err) {
-    showNotice(`加载配置失败: ${err.message}`);
+    if (baseDoc.status === 'loading') document.getElementById('catList').textContent = '配置列表未加载';
+    categoryLoadNotice = `加载配置失败: ${err.message}。请点击「重新加载」重试。`;
+    showNotice(categoryLoadNotice);
   }
 }
 
@@ -114,15 +120,18 @@ async function loadModels() {
   if (modelsRefresh) return modelsRefresh;
   modelsRefresh = (async () => {
     const prevSig = modelsSignature(availableModels);
+    const prevError = modelsError;
     let shouldRender = false;
     try {
       const res = await apiFetch('/api/models', { cache: 'no-store' });
       const json = await res.json();
       const next = Array.isArray(json.data) ? json.data : [];
-      shouldRender = modelsSignature(next) !== prevSig || !next.length;
+      shouldRender = Boolean(prevError) || modelsSignature(next) !== prevSig || !next.length;
       availableModels = next;
-    } catch {
-      shouldRender = !availableModels.length;
+      modelsError = '';
+    } catch (err) {
+      modelsError = err.message;
+      shouldRender = modelsError !== prevError;
     } finally {
       modelsRefresh = null;
       const modal = document.getElementById('modelModal');
@@ -387,7 +396,7 @@ function openModelModal(scope, name, index, isAdd) {
   title.textContent = `${name}: ${isAdd ? '添加模型' : '替换模型'}`;
   searchInput.value = '';
   modal.hidden = false;
-  if (!availableModels.length) {
+  if (!availableModels.length && !modelsError) {
     const box = document.getElementById('modelListBox');
     box.innerHTML = '<div style="padding: 12px; color: var(--muted); text-align: center;">正在加载模型列表...</div>';
   } else {
@@ -406,11 +415,16 @@ function closeModelModal() {
 function renderModelOptions(query) {
   const box = document.getElementById('modelListBox');
   box.innerHTML = '';
+  if (modelsError) {
+    box.textContent = `加载模型列表失败: ${modelsError}。请检查 Magpie 网关，然后重新打开此窗口或点击「重新加载」。`;
+    return;
+  }
   const q = query.toLowerCase().trim();
   const filtered = availableModels.filter((m) => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q));
 
   if (!filtered.length) {
-    box.innerHTML = '<div style="padding: 12px; color: var(--muted); text-align: center;">未找到匹配模型，可使用上方输入框输入自定义模型</div>';
+    const message = availableModels.length ? '未找到匹配模型' : '暂无可用模型';
+    box.innerHTML = `<div style="padding: 12px; color: var(--muted); text-align: center;">${message}，可使用上方输入框输入自定义模型</div>`;
     return;
   }
 

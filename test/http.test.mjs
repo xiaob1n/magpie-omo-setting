@@ -6,8 +6,9 @@ import { fetchGatewayModels } from '../lib/gateway.mjs';
 
 test('HTTP token, CORS, Host, errors and revision CAS protect actual config writes', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(),'omo-http-'));
-  const previous = {HOME:process.env.HOME,OMO_CONFIG_PATH:process.env.OMO_CONFIG_PATH,MAGPIE_OMO_PORT:process.env.MAGPIE_OMO_PORT};
+  const previous = {HOME:process.env.HOME,MAGPIE_CONFIG_DIR:process.env.MAGPIE_CONFIG_DIR,OMO_CONFIG_PATH:process.env.OMO_CONFIG_PATH,MAGPIE_OMO_PORT:process.env.MAGPIE_OMO_PORT};
   process.env.HOME = dir;
+  process.env.MAGPIE_CONFIG_DIR = path.join(dir, 'magpie');
   process.env.OMO_CONFIG_PATH = path.join(dir,'omo.jsonc');
   const occupied = Bun.serve({hostname:'127.0.0.1',port:0,fetch(){return new Response('occupied')}});
   process.env.MAGPIE_OMO_PORT = String(occupied.port);
@@ -70,23 +71,26 @@ test('gateway model identifiers use OmO provider namespace exactly once', async 
   finally {gateway.stop(true);if(previous===undefined)delete process.env.MAGPIE_ADDR;else process.env.MAGPIE_ADDR=previous;}
 });
 
-test('/api/models disables HTTP caching and reflects updated gateway providers immediately', async () => {
+test('/api/models distinguishes upstream failures from empty success and reflects recovery without caching', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'omo-models-http-'));
   const previous = {
     HOME: process.env.HOME,
+    MAGPIE_CONFIG_DIR: process.env.MAGPIE_CONFIG_DIR,
     OMO_CONFIG_PATH: process.env.OMO_CONFIG_PATH,
     MAGPIE_ADDR: process.env.MAGPIE_ADDR,
     MAGPIE_OMO_PORT: process.env.MAGPIE_OMO_PORT,
   };
   process.env.HOME = dir;
+  process.env.MAGPIE_CONFIG_DIR = path.join(dir, 'magpie');
   process.env.OMO_CONFIG_PATH = path.join(dir, 'omo.jsonc');
   fs.writeFileSync(process.env.OMO_CONFIG_PATH, '{"categories":{"quick":{"models":["old"]}}}');
 
   let gatewayModels = [{ id: 'provider-a/m1', owned_by: 'provider-a' }];
+  let gatewayStatus = 200;
   const gateway = Bun.serve({
     hostname: '127.0.0.1',
     port: 0,
-    fetch() { return Response.json({ data: gatewayModels }); },
+    fetch() { return Response.json({ data: gatewayModels }, { status: gatewayStatus }); },
   });
   process.env.MAGPIE_ADDR = `${gateway.hostname}:${gateway.port}`;
   process.env.MAGPIE_OMO_PORT = '0';
@@ -105,6 +109,9 @@ test('/api/models disables HTTP caching and reflects updated gateway providers i
     expect(first.headers.get('cache-control')).toBe('no-store');
     expect((await first.json()).data.map((m) => m.id)).toEqual(['magpie/provider-a/m1']);
 
+    gatewayStatus = 503;
+    const unavailable = await fetch(new URL('api/models', base), { headers });
+    gatewayStatus = 200;
     gatewayModels = [{ id: 'provider-b/m2', owned_by: 'provider-b' }];
     const second = await fetch(new URL('api/models', base), { headers });
     expect(second.status).toBe(200);
@@ -115,6 +122,15 @@ test('/api/models disables HTTP caching and reflects updated gateway providers i
     const empty = await fetch(new URL('api/models', base), { headers });
     expect(empty.status).toBe(200);
     expect((await empty.json()).data).toEqual([]);
+
+    await gateway.stop(true);
+    const refused = await fetch(new URL('api/models', base), { headers });
+    expect([unavailable.status, refused.status]).toEqual([502, 502]);
+    for (const failure of [unavailable, refused]) {
+      expect(failure.headers.get('cache-control')).toBe('no-store');
+      expect(failure.headers.get('access-control-allow-origin')).toBe('null');
+      expect(await failure.json()).toEqual({ error: expect.any(String) });
+    }
   } finally {
     server?.stop(true);
     gateway.stop(true);

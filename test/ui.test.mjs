@@ -7,7 +7,15 @@ function ui(options = {}) {
   const docListeners = new Map();
   const winListeners = new Map();
   const intervals = [];
-  const element = () => ({children:[],hidden:false,style:{},value:'',textContent:'',append(...children){this.children.push(...children)},focus(){},set innerHTML(value){this.children=[]},get innerHTML(){return ''}});
+  const element = () => ({
+    children: [], hidden: false, style: {}, value: '', markup: '',
+    append(...children) { this.children.push(...children); },
+    focus() {},
+    set innerHTML(value) { this.children = []; this.markup = value; },
+    get innerHTML() { return this.markup; },
+    set textContent(value) { this.innerHTML = value; },
+    get textContent() { return this.markup.replace(/<[^>]*>/g, '') + this.children.map((child) => child.textContent).join(''); },
+  });
   const addListener = (map) => (type, fn) => {
     if (!map.has(type)) map.set(type, []);
     map.get(type).push(fn);
@@ -37,6 +45,7 @@ function ui(options = {}) {
       return defaultFetch(url, init);
     },
   });
+  document.getElementById('catList').textContent = '正在加载 OmO 配置...';
   vm.runInContext(fs.readFileSync(new URL('../ui/app.js',import.meta.url),'utf8'),context);
   return {
     document,
@@ -95,14 +104,38 @@ test('document missing and error states remain visible', async () => {
   expect(app.document.getElementById('catList').textContent).toBe('parse failed');
 });
 
+test('failed category startup leaves loading and the reload button restores the list', async () => {
+  let categories = Response.json({ error: 'fixture unavailable' }, { status: 503 });
+  const app = ui({ fetch: async (url) => {
+    if (url === 'api/omo/categories') return categories;
+    if (url === 'api/models') return Response.json({ data: [] });
+    return Response.json({ configured: false });
+  } });
+  await app.run('modelsRefresh');
+
+  const list = app.document.getElementById('catList');
+  const banner = app.document.getElementById('noticeBanner');
+  expect(list.textContent).not.toContain('正在加载');
+  expect(banner.hidden).toBe(false);
+  expect(app.document.getElementById('noticeMsg').textContent).toContain('重新加载');
+
+  categories = Response.json({ status: 'ready', revision: 'r1', agents: [], categories: [{ name: 'quick', models: [] }] });
+  await app.document.getElementById('btnReload').onclick();
+  expect(list.textContent).toContain('quick');
+  expect(banner.hidden).toBe(true);
+});
+
 test('model list refreshes automatically across modal open, focus, visibility, reload and interval', async () => {
   let models = [{ id: 'magpie/provider-a/m1', name: 'm1', provider: 'provider-a' }];
+  let gatewayFailed = false;
   let pendingFetch = Promise.resolve();
   const app = ui({
     fetch: (url) => {
       const p = Promise.resolve().then(() => {
         if (url.includes('categories')) return { ok: true, json: async () => ({ path: 'fixture', status: 'ready', revision: 'r1', categories: [], agents: [] }) };
-        if (url.includes('models')) return { ok: true, json: async () => ({ data: models }) };
+        if (url.includes('models')) return gatewayFailed
+          ? Response.json({ error: 'fixture unavailable' }, { status: 502 })
+          : Response.json({ data: models });
         return { ok: true, json: async () => ({ configured: false }) };
       });
       pendingFetch = p;
@@ -152,6 +185,27 @@ test('model list refreshes automatically across modal open, focus, visibility, r
   modelInterval.fn();
   await flush();
   expect(app.document.getElementById('modelListBox').children.map((c) => c.textContent)).toEqual(['magpie/provider-f/m6']);
+
+  const box = app.document.getElementById('modelListBox');
+  for (const recover of [
+    () => app.emitWin('focus'),
+    () => app.document.getElementById('btnReload').onclick(),
+    () => {
+      app.document.getElementById('btnCloseModelModal').onclick();
+      app.run(`openModelModal('categories', 'quick', 0, false)`);
+    },
+  ]) {
+    gatewayFailed = true;
+    app.emitWin('focus');
+    await flush();
+    expect(box.textContent).toContain('加载模型列表失败');
+    expect(box.textContent).not.toContain('magpie/provider-f/m6');
+
+    gatewayFailed = false;
+    await recover();
+    await flush();
+    expect(box.textContent).toBe('magpie/provider-f/m6');
+  }
 });
 
 test('concurrent model refreshes deduplicate, preserve search filter, and clear when providers are empty', async () => {
@@ -191,5 +245,6 @@ test('concurrent model refreshes deduplicate, preserve search filter, and clear 
   release([]);
   await app.run('modelsRefresh');
   expect(app.document.getElementById('modelListBox').children).toEqual([]);
+  expect(app.document.getElementById('modelListBox').textContent).toContain('暂无可用模型');
   expect(app.run('availableModels')).toEqual([]);
 });
